@@ -4,16 +4,16 @@ set -euo pipefail
 # Navigate to script directory
 cd "$(dirname "$0")"
 
-# Target output directory (defaults to 'build', or overridden via $1)
+# Target output directory (defaults to "build", or overridden via $1)
 OUT_DIR="${1:-build}"
 
 # ANSI color codes for CLI formatting
-BLUE='\033[0;34m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-GRAY='\033[0;90m'
-BOLD='\033[1m'
-NC='\033[0m'
+BLUE="\033[0;34m"
+GREEN="\033[0;32m"
+RED="\033[0;31m"
+GRAY="\033[0;90m"
+BOLD="\033[1m"
+NC="\033[0m"
 
 # 1. Verify that the Emscripten compiler (em++) is available in PATH
 if ! command -v em++ >/dev/null 2>&1; then
@@ -30,29 +30,45 @@ mkdir -p "$OUT_DIR"
 
 # 3. Compile C++ sources to WebAssembly ES6 module
 em++ -O3 -std=c++17 -I. -I.. \
-  bindings.cc \
-  cam/cam.cc \
-  cam/hct.cc \
-  cam/hct_solver.cc \
-  cam/viewing_conditions.cc \
-  dislike/dislike.cc \
-  quantize/celebi.cc \
-  quantize/lab.cc \
-  quantize/wsmeans.cc \
-  quantize/wu.cc \
-  score/score.cc \
-  utils/utils.cc \
-  -s WASM=1 \
-  -s ALLOW_MEMORY_GROWTH=1 \
-  -s MODULARIZE=1 \
-  -s EXPORT_ES6=1 \
-  -s EXPORT_NAME="createMCUModule" \
-  --bind \
-  -o "${OUT_DIR}/mcu.js"
+    bindings.cc \
+    blend/blend.cc \
+    cam/cam.cc \
+    cam/hct.cc \
+    cam/hct_solver.cc \
+    cam/viewing_conditions.cc \
+    contrast/contrast.cc \
+    dislike/dislike.cc \
+    dynamiccolor/dynamic_color.cc \
+    dynamiccolor/dynamic_scheme.cc \
+    dynamiccolor/material_dynamic_colors.cc \
+    palettes/tones.cc \
+    quantize/celebi.cc \
+    quantize/lab.cc \
+    quantize/wsmeans.cc \
+    quantize/wu.cc \
+    scheme/scheme_content.cc \
+    scheme/scheme_expressive.cc \
+    scheme/scheme_fidelity.cc \
+    scheme/scheme_fruit_salad.cc \
+    scheme/scheme_monochrome.cc \
+    scheme/scheme_neutral.cc \
+    scheme/scheme_rainbow.cc \
+    scheme/scheme_tonal_spot.cc \
+    scheme/scheme_vibrant.cc \
+    score/score.cc \
+    temperature/temperature_cache.cc \
+    utils/utils.cc \
+    -s WASM=1 \
+    -s ALLOW_MEMORY_GROWTH=1 \
+    -s MODULARIZE=1 \
+    -s EXPORT_ES6=1 \
+    -s EXPORT_NAME="createMCUModule" \
+    --bind \
+    -o "${OUT_DIR}/mcu.js"
 
 # 4. Compute elapsed build time and artifact sizes
 end_time=$(date +%s%N)
-elapsed_ms=$(( (end_time - start_time) / 1000000 ))
+elapsed_ms=$(((end_time - start_time) / 1000000))
 elapsed_sec=$(awk "BEGIN {printf \"%.2f\", ${elapsed_ms} / 1000}")
 
 js_size=$(ls -lh "${OUT_DIR}/mcu.js" | awk '{print $5}')
