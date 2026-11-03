@@ -109,7 +109,7 @@ Variant StringToVariant(const std::string& str) {
  *   Filters out non-opaque pixels (alpha < 255) per Material Design specifications.
  * - Uint32Array: Direct 32-bit packed ARGB integers.
  *
- * @param jsPixels JavaScript typed array containing pixel data.
+ * @param jsPixels - JavaScript typed array containing pixel data.
  * @return Vector of opaque 32-bit ARGB pixels.
  */
 std::vector<Argb> ExtractPixelsFromJs(const emscripten::val& jsPixels) {
@@ -137,7 +137,7 @@ std::vector<Argb> ExtractPixelsFromJs(const emscripten::val& jsPixels) {
             uint8_t g = raw_bytes[i + 1];
             uint8_t b = raw_bytes[i + 2];
             uint8_t a = raw_bytes[i + 3];
-            if (a < 255) continue;
+            if (a < 128) continue;
             pixels.push_back(0xFF000000 | (r << 16) | (g << 8) | b);
         }
     } else {
@@ -147,6 +147,41 @@ std::vector<Argb> ExtractPixelsFromJs(const emscripten::val& jsPixels) {
     }
 
     return pixels;
+}
+
+/**
+ * Selects the dominant source color from quantized image clusters.
+ * Evaluates raw cluster population weighted by chroma to prioritize primary visual
+ * backdrops over accumulated skin-tone clusters and localized accents.
+ *
+ * @param quant_result - Result containing quantized clusters and their pixel counts.
+ * @param ranked - Ranked suggestions fallback from Material Color Utilities scoring.
+ * @return 32-bit ARGB seed color.
+ */
+Argb SelectDominantSourceColor(const QuantizerResult& quant_result, const std::vector<Argb>& ranked) {
+    if (quant_result.color_to_count.empty()) {
+        return ranked.empty() ? kDefaultBaselineColor : ranked[0];
+    }
+
+    Argb best_color = kDefaultBaselineColor;
+    double max_score = -1.0;
+
+    for (const auto& [argb, count] : quant_result.color_to_count) {
+        Hct hct(argb);
+        double chroma = hct.get_chroma();
+        double score = static_cast<double>(count) * std::min(chroma, 60.0);
+
+        if (score > max_score) {
+            max_score = score;
+            best_color = argb;
+        }
+    }
+
+    if (max_score > 0.0) {
+        return best_color;
+    }
+
+    return ranked.empty() ? kDefaultBaselineColor : ranked[0];
 }
 
 /**
@@ -320,9 +355,9 @@ emscripten::val BuildThemePayload(Hct sourceHct, const std::string& variantStr, 
  * Generates a complete Material Design 3 theme (Light and Dark schemes with
  * all ~45 semantic tokens and tonal palettes) from a seed hex color.
  *
- * @param hexOrArgb Seed color in hex format (e.g. "#6750A4") or ARGB integer string.
- * @param variant Style variant ("tonalSpot", "vibrant", "expressive", etc.).
- * @param contrastLevel Contrast adjustment level from -1.0 to 1.0 (default: 0.0).
+ * @param hexOrArgb - Seed color in hex format (e.g. "#6750A4") or ARGB integer string.
+ * @param variant - Style variant ("tonalSpot", "vibrant", "expressive", etc.).
+ * @param contrastLevel - Contrast adjustment level from -1.0 to 1.0 (default: 0.0).
  * @return Complete theme JavaScript object.
  */
 emscripten::val themeFromSourceColor(const std::string& hexOrArgb, const std::string& variant = "tonalSpot", double contrastLevel = 0.0) {
@@ -334,10 +369,10 @@ emscripten::val themeFromSourceColor(const std::string& hexOrArgb, const std::st
  * Quantizes and scores an image pixel buffer, extracts the dominant theme color,
  * and generates the complete dynamic theme.
  *
- * @param jsPixels Image pixel array (Uint8ClampedArray from Canvas or Uint32Array).
- * @param variant Theme style variant.
- * @param contrastLevel Contrast adjustment level from -1.0 to 1.0.
- * @param maxColors Maximum number of clusters for Celebi quantization (default: 128).
+ * @param jsPixels - Image pixel array (Uint8ClampedArray from Canvas or Uint32Array).
+ * @param variant - Theme style variant.
+ * @param contrastLevel - Contrast adjustment level from -1.0 to 1.0.
+ * @param maxColors - Maximum number of clusters for Celebi quantization (default: 128).
  * @return Complete theme payload including ranked candidate colors.
  */
 emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::string& variant = "tonalSpot", double contrastLevel = 0.0, int maxColors = 128) {
@@ -348,7 +383,7 @@ emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::strin
 
     QuantizerResult quant_result = QuantizeCelebi(pixels, static_cast<uint16_t>(maxColors));
     std::vector<Argb> ranked = RankedSuggestions(quant_result.color_to_count);
-    const Argb source = ranked.empty() ? kDefaultBaselineColor : ranked[0];
+    const Argb source = SelectDominantSourceColor(quant_result, ranked);
 
     return BuildThemePayload(Hct(source), variant, contrastLevel, ranked);
 }
@@ -357,8 +392,8 @@ emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::strin
  * Extracts and ranks candidate source colors from an image pixel buffer
  * using Celebi quantization and Material You scoring.
  *
- * @param jsPixels Image pixel array.
- * @param maxColors Maximum cluster count.
+ * @param jsPixels - Image pixel array.
+ * @param maxColors - Maximum cluster count.
  * @return Array of hex color strings ordered by theme suitability.
  */
 emscripten::val extractColors(const emscripten::val& jsPixels, int maxColors = 128) {
@@ -378,7 +413,7 @@ emscripten::val extractColors(const emscripten::val& jsPixels, int maxColors = 1
 /**
  * Generates the 13 standard tonal stops (0 to 100) for a given color.
  *
- * @param hexColor Source hex color string.
+ * @param hexColor - Source hex color string.
  * @return Object mapping tone values to hex color strings.
  */
 emscripten::val getTonalPalette(const std::string& hexColor) {
@@ -391,8 +426,8 @@ emscripten::val getTonalPalette(const std::string& hexColor) {
  * Harmonizes an arbitrary UI or status color with the source brand color
  * by shifting its hue in CAM16-UCS space while maintaining original chroma and tone.
  *
- * @param designColorHex Target color to harmonize (e.g. error, warning, success).
- * @param sourceColorHex Brand/theme seed color.
+ * @param designColorHex - Target color to harmonize (e.g. error, warning, success).
+ * @param sourceColorHex - Brand/theme seed color.
  * @return Harmonized hex color string.
  */
 std::string harmonize(const std::string& designColorHex, const std::string& sourceColorHex) {
