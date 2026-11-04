@@ -150,41 +150,6 @@ std::vector<Argb> ExtractPixelsFromJs(const emscripten::val& jsPixels) {
 }
 
 /**
- * Selects the dominant source color from quantized image clusters.
- * Evaluates raw cluster population weighted by chroma to prioritize primary visual
- * backdrops over accumulated skin-tone clusters and localized accents.
- *
- * @param quant_result - Result containing quantized clusters and their pixel counts.
- * @param ranked - Ranked suggestions fallback from Material Color Utilities scoring.
- * @return 32-bit ARGB seed color.
- */
-Argb SelectDominantSourceColor(const QuantizerResult& quant_result, const std::vector<Argb>& ranked) {
-    if (quant_result.color_to_count.empty()) {
-        return ranked.empty() ? kDefaultBaselineColor : ranked[0];
-    }
-
-    Argb best_color = kDefaultBaselineColor;
-    double max_score = -1.0;
-
-    for (const auto& [argb, count] : quant_result.color_to_count) {
-        Hct hct(argb);
-        double chroma = hct.get_chroma();
-        double score = static_cast<double>(count) * std::min(chroma, 60.0);
-
-        if (score > max_score) {
-            max_score = score;
-            best_color = argb;
-        }
-    }
-
-    if (max_score > 0.0) {
-        return best_color;
-    }
-
-    return ranked.empty() ? kDefaultBaselineColor : ranked[0];
-}
-
-/**
  * Instantiates the appropriate DynamicScheme subclass based on the requested variant.
  */
 std::unique_ptr<DynamicScheme> CreateScheme(Hct sourceHct, Variant variant, bool isDark, double contrastLevel) {
@@ -372,10 +337,10 @@ emscripten::val themeFromSourceColor(const std::string& hexOrArgb, const std::st
  * @param jsPixels - Image pixel array (Uint8ClampedArray from Canvas or Uint32Array).
  * @param variant - Theme style variant.
  * @param contrastLevel - Contrast adjustment level from -1.0 to 1.0.
- * @param maxColors - Maximum number of clusters for Celebi quantization (default: 128).
+ * @param maxColors - Maximum number of clusters for Celebi quantization (default: 32).
  * @return Complete theme payload including ranked candidate colors.
  */
-emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::string& variant = "tonalSpot", double contrastLevel = 0.0, int maxColors = 128) {
+emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::string& variant = "tonalSpot", double contrastLevel = 0.0, int maxColors = 32) {
     std::vector<Argb> pixels = ExtractPixelsFromJs(jsPixels);
     if (pixels.empty()) {
         return BuildThemePayload(Hct(kDefaultBaselineColor), variant, contrastLevel);
@@ -383,7 +348,7 @@ emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::strin
 
     QuantizerResult quant_result = QuantizeCelebi(pixels, static_cast<uint16_t>(maxColors));
     std::vector<Argb> ranked = RankedSuggestions(quant_result.color_to_count);
-    const Argb source = SelectDominantSourceColor(quant_result, ranked);
+    const Argb source = ranked.empty() ? kDefaultBaselineColor : ranked[0];
 
     return BuildThemePayload(Hct(source), variant, contrastLevel, ranked);
 }
@@ -392,11 +357,11 @@ emscripten::val themeFromImage(const emscripten::val& jsPixels, const std::strin
  * Extracts and ranks candidate source colors from an image pixel buffer
  * using Celebi quantization and Material You scoring.
  *
- * @param jsPixels - Image pixel array.
- * @param maxColors - Maximum cluster count.
+ * @param jsPixels - Image pixel array (Uint8ClampedArray from Canvas or Uint32Array).
+ * @param maxColors - Maximum number of clusters for Celebi quantization (default: 32).
  * @return Array of hex color strings ordered by theme suitability.
  */
-emscripten::val extractColors(const emscripten::val& jsPixels, int maxColors = 128) {
+emscripten::val extractColors(const emscripten::val& jsPixels, int maxColors = 32) {
     std::vector<Argb> pixels = ExtractPixelsFromJs(jsPixels);
     emscripten::val result = emscripten::val::array();
     if (pixels.empty()) return result;
